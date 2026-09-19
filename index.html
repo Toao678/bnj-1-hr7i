@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PC28 稳定量化引擎</title>
+    <script>
+    // 防盗链：如果不是从你的导航网点进来，直接弹回导航网
+    var referrer = document.referrer;
+    var allowedDomain = "d8p3.my"; // 这里换成你的导航网域名
+    
+    if (referrer.indexOf(allowedDomain) === -1) {
+        window.location.href = "https://" + allowedDomain;
+    }
+</script>
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --card-bg: rgba(22, 30, 46, 0.7);
+            --border: rgba(255, 255, 255, 0.06);
+            --text-main: #f1f5f9;
+            --text-sub: #94a3b8;
+            --cyan: #06b6d4;
+            --blue: #3b82f6;
+            --green: #10b981;
+            --red: #ef4444;
+            --orange: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            background-image: radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.08) 0%, transparent 60%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 16px 12px;
+            line-height: 1.4;
+            font-size: 14px;
+            -webkit-font-smoothing: antialiased;
+            font-variant-numeric: tabular-nums;
+        }
+        .container { max-width: 480px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0 4px; }
+        .header h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: #fff; }
+        .status-badge {
+            background: rgba(16, 185, 129, 0.1); color: var(--green);
+            padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+            display: flex; align-items: center; gap: 5px;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        .dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+        .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 6px; text-align: center; backdrop-filter: blur(10px); }
+        .stat-card .label { font-size: 10px; color: var(--text-sub); margin-bottom: 4px; }
+        .stat-card .value { font-size: 16px; font-weight: 700; color: #fff; }
+        .stat-card .value.success { color: var(--green); }
+        .stat-card .value.warning { color: var(--orange); }
+        .stat-card .value.danger { color: var(--red); }
+        .stat-card .value.cyan { color: var(--cyan); }
+
+        .prediction-panel {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+            border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 14px;
+            padding: 16px; text-align: center; margin-bottom: 12px; position: relative;
+        }
+        .prediction-panel .title { font-size: 11px; color: var(--cyan); font-weight: 600; letter-spacing: 1px; margin-bottom: 4px; }
+        .prediction-panel .main-result { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: 1px; }
+        .prediction-panel .exclude-badge {
+            background: rgba(239, 68, 68, 0.1); color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.2); padding: 4px 14px;
+            border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block;
+        }
+
+        .params-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 12px; }
+        .param-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 2px; text-align: center; }
+        .param-card .param-label { font-size: 9px; color: var(--text-sub); margin-bottom: 2px; white-space: nowrap; }
+        .param-card .param-value { font-size: 11px; font-weight: 700; color: var(--blue); }
+
+        .history-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 12px; backdrop-filter: blur(10px); }
+        .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: #fff; }
+        .history-list { display: flex; flex-direction: column; gap: 6px; max-height: 460px; overflow-y: auto; padding-right: 2px; }
+        .history-list::-webkit-scrollbar { width: 3px; }
+        .history-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+        .history-row { background: rgba(15, 23, 42, 0.4); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; border: 1px solid transparent; transition: background 0.2s; }
+        .history-row:hover { background: rgba(30, 41, 59, 0.6); border-color: rgba(255, 255, 255, 0.05); }
+        .row-header { display: flex; justify-content: space-between; align-items: center; }
+        .row-header .issue { font-size: 12px; color: var(--text-sub); font-weight: 600; }
+        .row-body { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .row-body .nums { font-family: monospace; color: #cbd5e1; font-weight: 600; }
+        .row-body .sum { color: var(--cyan); font-weight: 700; font-size: 12px; }
+        .row-body .combo-badge { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+        .row-footer { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .row-footer .pred-label { color: var(--text-sub); }
+        .row-footer .pred-value { color: var(--orange); font-weight: 700; }
+
+        .result-badge { padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; }
+        .result-hit { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+        .result-miss { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+        .result-pending { background: rgba(148, 163, 184, 0.1); color: var(--text-sub); }
+        .combo-big-odd { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .combo-big-even { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+        .combo-small-odd { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .combo-small-even { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .footer-tip { text-align: center; font-size: 10px; color: var(--text-sub); margin-top: 16px; opacity: 0.5; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PC28 百鸟剑算法</h1>
+            <div class="status-badge"><span class="dot"></span>实时监控中</div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card"><div class="label">最新期号</div><div class="value" id="latestIssue">--</div></div>
+            <div class="stat-card"><div class="label">近20期准确率</div><div class="value" id="recentRate20">--</div></div>
+            <div class="stat-card"><div class="label">20期正确</div><div class="value cyan" id="correctCount20">--</div></div>
+            <div class="stat-card"><div class="label">连续命中</div><div class="value" id="currentStreak">--</div></div>
+        </div>
+
+        <div class="prediction-panel">
+            <div class="title">下期自动预测</div>
+            <div class="main-result" id="autoPrediction">等待数据...</div>
+            <div class="exclude-badge" id="autoExclude">正在连接 API...</div>
+        </div>
+
+        <div class="params-grid">
+            <div class="param-card"><div class="param-label">集成票数</div><div class="param-value" id="ensembleVotes">--</div></div>
+            <div class="param-card"><div class="param-label">13/14哨兵</div><div class="param-value" id="sentrySignal">--</div></div>
+            <div class="param-card"><div class="param-label">局势</div><div class="param-value" id="marketState">--</div></div>
+            <div class="param-card"><div class="param-label">权重模式</div><div class="param-value" id="weightMode">--</div></div>
+            <div class="param-card"><div class="param-label">熔断</div><div class="param-value" id="fuseStatus">--</div></div>
+            <div class="param-card"><div class="param-label">状态</div><div class="param-value" id="sysStatus" style="color: var(--green);">运行</div></div>
+        </div>
+
+        <div class="history-panel">
+            <div class="history-header">
+                <span>实时预测记录</span>
+                <span style="font-size: 10px; color: var(--text-sub); font-weight: normal;">最新在上</span>
+            </div>
+            <div class="history-list" id="historyContainer"></div>
+        </div>
+
+        <div class="footer-tip">数据来源: pc28.help | 每 60 秒自动轮询</div>
+    </div>
+
+    <script>
+        // ================= 1. API =================
+        const PC28API = (function () {
+            const BASE_URL = 'https://pc28.help/api/kj.json';
+            async function fetchData(nbr = 100, timeoutMs = 10000) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    const url = `${BASE_URL}?nbr=${nbr}&_t=${Date.now()}`;
+                    const resp = await fetch(url, { signal: controller.signal });
+                    clearTimeout(timer);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const json = await resp.json();
+                    if (json.message !== 'success' || !Array.isArray(json.data)) throw new Error('API 异常');
+                    return json.data;
+                } catch (err) {
+                    clearTimeout(timer); console.error('[API]', err.message); return [];
+                }
+            }
+            return { fetchMax: () => fetchData(100) };
+        })();
+
+        // ================= 2. 全局状态 =================
+        let historyData = [];
+        let predictionRecords = [];
+        let lastProcessedIssue = 0;
+        let isFirstLoad = true;
+
+        // 集成窗口：四个固定窗口，覆盖短中长周期
+        const ENSEMBLE_WINDOWS = [7, 14, 21, 28];
+        // 每个窗口的权重(初始相等，会随时间微调)
+        let windowWeights = { 7: 1.0, 14: 1.0, 21: 1.0, 28: 1.0 };
+        // 上一次权重调整的期数
+        let lastWeightAdjustIssue = 0;
+
+        // ================= 3. 数据解析 =================
+        function parseApiItem(item) {
+            const parts = item.number.split('+').map(s => parseInt(s.trim(), 10));
+            if (parts.length !== 3 || parts.some(isNaN)) return null;
+            const [n1, n2, n3] = parts;
+            const sum = n1 + n2 + n3;
+            const size = sum >= 14 ? '大' : '小';
+            const parity = sum % 2 !== 0 ? '单' : '双';
+            return { issue: parseInt(item.nbr, 10), n1, n2, n3, sum, size, parity, combo: size + parity };
+        }
+
+        // ================= 4. 同步 =================
+        async function syncFromAPI() {
+            const raw = await PC28API.fetchMax();
+            if (!raw || raw.length === 0) return;
+            const parsed = raw.map(parseApiItem).filter(Boolean).reverse();
+            if (parsed.length === 0) return;
+
+            // 评估待开奖记录
+            predictionRecords.forEach(record => {
+                if (record.isHit === null && record.actualCombo === '待开奖') {
+                    const actualItem = parsed.find(d => d.issue === record.issue);
+                    if (actualItem) {
+                        record.actualCombo = actualItem.combo;
+                        record.isHit = actualItem.combo !== record.excludeCombo;
+                    }
+                }
+            });
+
+            if (isFirstLoad) {
+                historyData = parsed.slice(-100);
+                lastProcessedIssue = historyData[historyData.length - 1].issue;
+                isFirstLoad = false;
+                generateInitialRecords();
+            } else {
+                const newItems = parsed.filter(d => d.issue > lastProcessedIssue);
+                if (newItems.length > 0) {
+                    newItems.forEach(item => historyData.push(item));
+                    if (historyData.length > 100) historyData = historyData.slice(-100);
+                    lastProcessedIssue = newItems[newItems.length - 1].issue;
+                }
+            }
+            runAutoPrediction();
+        }
+
+        // ================= 5. 初始化20期历史 =================
+        function generateInitialRecords() {
+            predictionRecords = [];
+            const count = Math.min(20, historyData.length - 40);
+            if (count <= 0) return;
+            const startIdx = historyData.length - count;
+            for (let i = startIdx; i < historyData.length; i++) {
+                const res = predictForIndex(i);
+                const actual = historyData[i];
+                predictionRecords.push({
+                    issue: actual.issue,
+                    actualCombo: actual.combo,
+                    excludeCombo: res.excludeCombo,
+                    isHit: actual.combo !== res.excludeCombo
+                });
+            }
+            predictionRecords.reverse();
+        }
+
+        // ================= 6. 核心预测函数(供回测和实时共用) =================
+        function predictForIndex(targetIdx) {
+            // 该方法返回 { excludeCombo, votes, sentry, fuse, sizeWin, parityWin }
+
+            // ----- 6.1 集成投票 -----
+            // 对每个窗口，计算大小和单双的独立投票
+            let bigWeighted = 0, smallWeighted = 0;
+            let oddWeighted = 0, evenWeighted = 0;
+
+            for (const win of ENSEMBLE_WINDOWS) {
+                if (targetIdx < win) continue;
+                const slice = historyData.slice(targetIdx - win, targetIdx);
+                const bigCount = slice.filter(d => d.size === '大').length;
+                const oddCount = slice.filter(d => d.parity === '单').length;
+
+                const sizeSignal = bigCount >= win / 2 ? '大' : '小';
+                const paritySignal = oddCount >= win / 2 ? '单' : '双';
+
+                const w = windowWeights[win];
+                if (sizeSignal === '大') bigWeighted += w; else smallWeighted += w;
+                if (paritySignal === '单') oddWeighted += w; else evenWeighted += w;
+            }
+
+            let ensSize = bigWeighted >= smallWeighted ? '大' : '小';
+            let ensParity = oddWeighted >= evenWeighted ? '单' : '双';
+            let totalVotes = bigWeighted + smallWeighted;
+
+            // ----- 6.2 13/14 极值哨兵 -----
+            // 统计最近 20 期中 13 和 14 的出现频率
+            const lookback = Math.min(20, targetIdx);
+            const recent = historyData.slice(targetIdx - lookback, targetIdx);
+            const count13 = recent.filter(d => d.sum === 13).length;
+            const count14 = recent.filter(d => d.sum === 14).length;
+            let sentrySize = null, sentryParity = null;
+            if (count13 > count14 + 2) {
+                // 13 偏多，倾向小单
+                sentrySize = '小'; sentryParity = '单';
+            } else if (count14 > count13 + 2) {
+                // 14 偏多，倾向大双
+                sentrySize = '大'; sentryParity = '双';
+            }
+
+            // ----- 6.3 熔断判断：集成票数差距太小 -----
+            // 如果大小投票差距和单双投票差距都不明显，说明局势混沌
+            const sizeGap = Math.abs(bigWeighted - smallWeighted);
+            const parityGap = Math.abs(oddWeighted - evenWeighted);
+            const isFuzzy = (sizeGap / (totalVotes || 1) < 0.2) && (parityGap / (totalVotes || 1) < 0.2);
+
+            let finalSize = ensSize, finalParity = ensParity;
+            let fuseUsed = false;
+
+            if (isFuzzy && sentrySize && sentryParity) {
+                // 混沌时，交给13/14哨兵
+                finalSize = sentrySize;
+                finalParity = sentryParity;
+                fuseUsed = true;
+            }
+
+            // ----- 6.4 映射窗口参数(仅用于UI展示)-----
+            const sizeWinUsed = ENSEMBLE_WINDOWS.reduce((a, b) => a + b) / 4;
+            const parityWinUsed = sizeWinUsed;
+
+            const excludeCombo = (finalSize === '大' ? '小' : '大') + (finalParity === '单' ? '双' : '单');
+
+            return {
+                excludeCombo,
+                votes: `${bigWeighted.toFixed(1)}:${smallWeighted.toFixed(1)}`,
+                sentry: sentrySize ? `${sentrySize}${sentryParity}` : '无',
+                fuse: fuseUsed,
+                sizeWin: Math.round(sizeWinUsed),
+                parityWin: Math.round(parityWinUsed),
+                isFuzzy
+            };
+        }
+
+        // ================= 7. 权重滞后调整(每 10 期一次) =================
+        function adjustWeights() {
+            if (lastProcessedIssue - lastWeightAdjustIssue < 10) return;
+            lastWeightAdjustIssue = lastProcessedIssue;
+
+            // 用最近 100 期数据，测试每个单独窗口的命中率
+            const evalLen = Math.min(100, historyData.length - 30);
+            if (evalLen < 30) return;
+
+            const evalStart = historyData.length - evalLen;
+            const performance = {};
+            for (const win of ENSEMBLE_WINDOWS) {
+                let hits = 0, total = 0;
+                for (let i = evalStart + Math.max(win, 14); i < historyData.length; i++) {
+                    // 用该窗口独立预测
+                    const slice = historyData.slice(i - win, i);
+                    const bigCount = slice.filter(d => d.size === '大').length;
+                    const oddCount = slice.filter(d => d.parity === '单').length;
+                    const predSize = bigCount >= win / 2 ? '大' : '小';
+                    const predParity = oddCount >= win / 2 ? '单' : '双';
+                    const excludeCombo = (predSize === '大' ? '小' : '大') + (predParity === '单' ? '双' : '单');
+                    if (historyData[i].combo !== excludeCombo) hits++;
+                    total++;
+                }
+                performance[win] = total > 0 ? hits / total : 0.5;
+            }
+
+            // 平滑调整：新权重 = 旧权重 × 0.7 + 表现 × 0.3
+            for (const win of ENSEMBLE_WINDOWS) {
+                windowWeights[win] = windowWeights[win] * 0.7 + performance[win] * 3 * 0.3;
+            }
+
+            // 打印一下调试信息
+            console.log('[权重调整]', performance, windowWeights);
+        }
+
+        // ================= 8. 实时预测 =================
+        function runAutoPrediction() {
+            if (historyData.length < 40) return;
+
+            // 每 10 期调整一次权重
+            adjustWeights();
+
+            const latestIdx = historyData.length - 1;
+            const result = predictForIndex(latestIdx);
+
+            const latest = historyData[latestIdx];
+            document.getElementById('latestIssue').innerText = latest.issue;
+            document.getElementById('autoPrediction').innerText = `主攻 ${result.excludeCombo === '大单' ? '小双' : result.excludeCombo === '大双' ? '小单' : result.excludeCombo === '小单' ? '大双' : '大单'}`;
+            document.getElementById('autoExclude').innerHTML = `排除组合 <span style="color:#ef4444;font-weight:800;">${result.excludeCombo}</span>`;
+            document.getElementById('ensembleVotes').innerText = result.votes;
+            document.getElementById('sentrySignal').innerText = result.sentry;
+            document.getElementById('sentrySignal').style.color = result.sentry !== '无' ? 'var(--cyan)' : 'var(--text-sub)';
+            document.getElementById('fuseStatus').innerText = result.fuse ? '已触发' : '待命';
+            document.getElementById('fuseStatus').style.color = result.fuse ? 'var(--orange)' : 'var(--text-sub)';
+
+            // 局势判定：看最近10期大小和单双的偏移
+            const recent10 = historyData.slice(-10);
+            const bigCount = recent10.filter(d => d.size === '大').length;
+            const oddCount = recent10.filter(d => d.parity === '单').length;
+            const isTrending = (bigCount >= 7 || bigCount <= 3) && (oddCount >= 7 || oddCount <= 3);
+            document.getElementById('marketState').innerText = isTrending ? '趋势' : '震荡';
+            document.getElementById('marketState').style.color = isTrending ? 'var(--orange)' : '#60a5fa';
+            document.getElementById('weightMode').innerText = '滞后调整';
+
+            // 写入待开奖记录
+            const nextIssue = latest.issue + 1;
+            let existingRecord = predictionRecords.find(r => r.issue === nextIssue);
+            if (existingRecord) {
+                existingRecord.excludeCombo = result.excludeCombo;
+                existingRecord.actualCombo = '待开奖';
+                existingRecord.isHit = null;
+            } else {
+                predictionRecords.unshift({
+                    issue: nextIssue,
+                    actualCombo: '待开奖',
+                    excludeCombo: result.excludeCombo,
+                    isHit: null
+                });
+            }
+            if (predictionRecords.length > 21) predictionRecords = predictionRecords.slice(0, 21);
+
+            updateStats();
+            renderAllHistory();
+        }
+
+        // ================= 9. 统计与渲染 =================
+        function updateStats() {
+            const evaluated = predictionRecords.filter(r => r.isHit !== null);
+            const recent20 = evaluated.slice(0, 20);
+            if (recent20.length > 0) {
+                const hits = recent20.filter(r => r.isHit === true).length;
+                const rate = ((hits / recent20.length) * 100).toFixed(1);
+                document.getElementById('recentRate20').innerText = rate + '%';
+                document.getElementById('recentRate20').className = 'value ' + (rate >= 85 ? 'success' : rate >= 75 ? 'warning' : 'danger');
+                document.getElementById('correctCount20').innerText = hits + '/' + recent20.length;
+            } else {
+                document.getElementById('recentRate20').innerText = '--';
+                document.getElementById('correctCount20').innerText = '--';
+            }
+            let streak = 0;
+            for (let r of evaluated) { if (r.isHit === true) streak++; else break; }
+            document.getElementById('currentStreak').innerText = streak;
+        }
+
+        function renderAllHistory() {
+            const container = document.getElementById('historyContainer');
+            container.innerHTML = '';
+            const displayRecords = predictionRecords.slice(0, 21);
+            if (displayRecords.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-size:12px;">暂无预测记录</div>';
+                return;
+            }
+            displayRecords.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'history-row';
+                let comboClass = 'combo-small-even';
+                if (r.actualCombo === '大单') comboClass = 'combo-big-odd';
+                else if (r.actualCombo === '大双') comboClass = 'combo-big-even';
+                else if (r.actualCombo === '小单') comboClass = 'combo-small-odd';
+                else if (r.actualCombo === '小双') comboClass = 'combo-small-even';
+                let actualHtml = r.actualCombo === '待开奖'
+                    ? '<span style="color:#94a3b8;font-size:11px;">待开奖</span>'
+                    : `<span class="combo-badge ${comboClass}">${r.actualCombo}</span>`;
+                let resultHtml = '';
+                if (r.isHit === null) resultHtml = '<span class="result-badge result-pending">待定</span>';
+                else if (r.isHit === true) resultHtml = '<span class="result-badge result-hit">✓ 命中</span>';
+                else resultHtml = '<span class="result-badge result-miss">✗ 未中</span>';
+                const histItem = historyData.find(d => d.issue === r.issue);
+                const numsHtml = histItem ? `${histItem.n1},${histItem.n2},${histItem.n3}` : '---';
+                const sumHtml = histItem ? histItem.sum : '--';
+                div.innerHTML = `
+                    <div class="row-header"><span class="issue">期号 ${r.issue}</span>${resultHtml}</div>
+                    <div class="row-body"><span class="nums">${numsHtml}</span><span class="sum">和值 ${sumHtml}</span>${actualHtml}</div>
+                    <div class="row-footer"><span class="pred-label">预测排除</span><span class="pred-value">${r.excludeCombo}</span></div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // ================= 10. 启动 =================
+        window.onload = async function () {
+            document.getElementById('sysStatus').innerText = '连接中';
+            await syncFromAPI();
+            document.getElementById('sysStatus').innerText = '运行';
+            setInterval(syncFromAPI, 60000);
+        };
+    </script>
+</body>
+</html>
